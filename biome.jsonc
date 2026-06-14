@@ -6,6 +6,9 @@
 		"useIgnoreFile": true,
 		"clientKind": "git"
 	},
+	"files": {
+		"includes": ["**", "!convex/_generated"]
+	},
 	"assist": {
 		"enabled": true,
 		"actions": {
@@ -56,5 +59,13 @@
 			"cssModules": true,
 			"tailwindDirectives": true
 		}
-	}
+	},
+	"overrides": [
+		{
+			"includes": ["src/components/ui/**"],
+			"linter": {
+				"enabled": false
+			}
+		}
+	]
 }

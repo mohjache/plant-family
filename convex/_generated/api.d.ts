@@ -1,4 +1,6 @@
 /* eslint-disable */
+/** biome-ignore-all lint/complexity/noBannedTypes: generated */
+/** biome-ignore-all lint/suspicious/noExplicitAny: generated */
 /**
  * Generated `api` utility.
  *

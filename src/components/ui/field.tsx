@@ -201,7 +201,7 @@ function FieldError({
 			<ul className="ml-4 flex list-disc flex-col gap-1">
 				{uniqueErrors.map(
 					(error, index) =>
-						// biome-ignore lint/suspicious/noArrayIndexKey: <explanation>
+						// biome-ignore lint/suspicious/noArrayIndexKey: generate a unique key for each error message
 						error?.message && <li key={index}>{error.message}</li>,
 				)}
 			</ul>
