@@ -1,6 +1,4 @@
 /* eslint-disable */
-/** biome-ignore-all lint/complexity/noBannedTypes: generated */
-/** biome-ignore-all lint/suspicious/noExplicitAny: generated */
 /**
  * Generated `api` utility.
  *
@@ -10,15 +8,16 @@
  * @module
  */
 
-import type {
-	ApiFromModules,
-	FilterApi,
-	FunctionReference,
-} from "convex/server";
 import type * as myFunctions from "../myFunctions.js";
 
+import type {
+  ApiFromModules,
+  FilterApi,
+  FunctionReference,
+} from "convex/server";
+
 declare const fullApi: ApiFromModules<{
-	myFunctions: typeof myFunctions;
+  myFunctions: typeof myFunctions;
 }>;
 
 /**
@@ -30,8 +29,8 @@ declare const fullApi: ApiFromModules<{
  * ```
  */
 export declare const api: FilterApi<
-	typeof fullApi,
-	FunctionReference<any, "public">
+  typeof fullApi,
+  FunctionReference<any, "public">
 >;
 
 /**
@@ -43,8 +42,8 @@ export declare const api: FilterApi<
  * ```
  */
 export declare const internal: FilterApi<
-	typeof fullApi,
-	FunctionReference<any, "internal">
+  typeof fullApi,
+  FunctionReference<any, "internal">
 >;
 
 export declare const components: {};
