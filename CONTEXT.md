@@ -6,14 +6,30 @@ Plant Family is an app for tracking the plants you own and the breeding lineage
 ## Language
 
 **Plant**:
-An individual plant specimen that you own. A single node in a pedigree.
+A single node in a pedigree. Usually a specimen you own, but it may also be an
+ancestor you don't own — a species or wild-collected plant referenced only as a
+forebear. Ownership is a property of a Plant, not part of its identity.
 _Avoid_: specimen, plant family (see below)
+
+**In collection**:
+A property of a Plant meaning you physically hold the specimen, as opposed to a
+referenced ancestor (a species or wild-collected plant) you've recorded but
+never possessed. Distinct from tenant ownership — every Plant belongs to one
+account regardless of whether it is in that account's collection.
+_Avoid_: owned (ambiguous with account/tenant ownership), have
 
 **Pedigree**:
 The ancestry diagram showing a Plant and the parents/ancestors it descends from.
 Structurally a directed acyclic graph (DAG), not a strict tree, because an
 ancestor can appear on more than one branch.
 _Avoid_: family tree, lineage
+
+**Breeding graph**:
+The entire directed acyclic graph of one account's Plants and the Origin edges
+between them, shown together — potentially several disconnected clusters at
+once. Unrooted, in contrast to a Pedigree, which is rooted at a single subject
+Plant. The on-screen surface that renders it is the _canvas_.
+_Avoid_: collection graph (clashes with In collection), family graph, lineage
 
 **Origin**:
 The event that produced a Plant. Every Plant has exactly one Origin, which is
