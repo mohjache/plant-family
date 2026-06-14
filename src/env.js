@@ -10,6 +10,7 @@ export const env = createEnv({
     NODE_ENV: z.enum(["development", "test", "production"]),
     WORKOS_CLIENT_ID: z.string(),
     WORKOS_API_KEY: z.string(),    
+    CONVEX_DEPLOY_KEY: z.string(),
   },
 
   /**
@@ -33,6 +34,7 @@ export const env = createEnv({
     NEXT_PUBLIC_CONVEX_SITE_URL: process.env.NEXT_PUBLIC_CONVEX_SITE_URL,
     WORKOS_CLIENT_ID: process.env.WORKOS_CLIENT_ID,
     WORKOS_API_KEY: process.env.WORKOS_API_KEY,    
+     CONVEX_DEPLOY_KEY: process.env.CONVEX_DEPLOY_KEY,
     // NEXT_PUBLIC_CLIENTVAR: process.env.NEXT_PUBLIC_CLIENTVAR,
   },
   /**

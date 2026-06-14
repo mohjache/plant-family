@@ -10,17 +10,16 @@ export default function Home() {
 
   return (
     <div className="p-4">
-      <div className="flex justify-between items-center mb-4">
-        <h1>Convex + AuthKit</h1>
+      <div className="flex justify-between items-center mb-4">        
         <div className="flex gap-2">
           {user ? (
             <button onClick={() => signOut()}>Sign out</button>
           ) : (
             <>
-              <Link href="/sign-in">
+              <Link href="/sign-in" prefetch={false}>
                 <button>Sign in</button>
               </Link>
-              <Link href="/sign-up">
+              <Link href="/sign-up" prefetch={false}>
                 <button>Sign up</button>
               </Link>
             </>
