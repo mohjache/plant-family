@@ -21,6 +21,7 @@ export const env = createEnv({
 	client: {
 		NEXT_PUBLIC_CONVEX_SITE_URL: z.string(),
 		NEXT_PUBLIC_CONVEX_URL: z.string(),
+		NEXT_PUBLIC_WORKOS_REDIRECT_URI: z.string(),
 		// NEXT_PUBLIC_CLIENTVAR: z.string(),
 	},
 
@@ -35,6 +36,7 @@ export const env = createEnv({
 		WORKOS_CLIENT_ID: process.env.WORKOS_CLIENT_ID,
 		WORKOS_API_KEY: process.env.WORKOS_API_KEY,
 		CONVEX_DEPLOY_KEY: process.env.CONVEX_DEPLOY_KEY,
+		NEXT_PUBLIC_WORKOS_REDIRECT_URI: process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI,
 		// NEXT_PUBLIC_CLIENTVAR: process.env.NEXT_PUBLIC_CLIENTVAR,
 	},
 	/**
