@@ -13,14 +13,16 @@ export default function Home() {
 			<div className="mb-4 flex items-center justify-between">
 				<div className="flex gap-2">
 					{user ? (
-						<button onClick={() => signOut()}>Sign out</button>
+						<button onClick={() => signOut()} type="button">
+							Sign out
+						</button>
 					) : (
 						<>
-							<Link href="/sign-in" prefetch={false}>
-								<button>Sign in</button>
+							<Link href="/sign-in" prefetch={false} tabIndex={-1}>
+								Sign in
 							</Link>
-							<Link href="/sign-up" prefetch={false}>
-								<button>Sign up</button>
+							<Link href="/sign-up" prefetch={false} tabIndex={-1}>
+								Sign up
 							</Link>
 						</>
 					)}

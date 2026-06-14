@@ -10,6 +10,7 @@ import { type ReactNode, useCallback, useState } from "react";
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
 	const [convex] = useState(() => {
+		// biome-ignore lint/style/noNonNullAssertion: build will fail if NEXT_PUBLIC_CONVEX_URL is not set, so this is safe
 		return new ConvexReactClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 	});
 	return (
