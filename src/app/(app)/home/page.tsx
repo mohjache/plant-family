@@ -124,6 +124,33 @@ function ancestryOf(focusId: string, graph: BreedingGraph): Set<string> {
 	return result;
 }
 
+/**
+ * Every Plant that descends from `rootId` (strict — excludes `rootId` itself),
+ * walking edges downward. These are exactly the plants that cannot be a parent
+ * of `rootId` without forming a cycle.
+ */
+function descendantsOf(rootId: string, graph: BreedingGraph): Set<string> {
+	const childrenByParent = new Map<string, string[]>();
+	for (const edge of graph.edges) {
+		const arr = childrenByParent.get(edge.parentId) ?? [];
+		arr.push(edge.childId);
+		childrenByParent.set(edge.parentId, arr);
+	}
+	const result = new Set<string>();
+	const stack = [rootId];
+	while (stack.length > 0) {
+		const current = stack.pop();
+		if (current === undefined) continue;
+		for (const childId of childrenByParent.get(current) ?? []) {
+			if (!result.has(childId)) {
+				result.add(childId);
+				stack.push(childId);
+			}
+		}
+	}
+	return result;
+}
+
 // ---------------------------------------------------------------------------
 // Custom node — the existing PlantCard, adapted as a React Flow node.
 // ---------------------------------------------------------------------------
@@ -383,6 +410,7 @@ function OriginPanel({
 	draft,
 	child,
 	plants,
+	invalidParentIds,
 	error,
 	onKind,
 	onActiveSlot,
@@ -393,6 +421,7 @@ function OriginPanel({
 	draft: OriginDraft;
 	child: Plant;
 	plants: Plant[];
+	invalidParentIds: Id<"plants">[];
 	error: string | null;
 	onKind: (kind: "division" | "cross") => void;
 	onActiveSlot: (slot: "div" | "seed" | "pollen") => void;
@@ -438,7 +467,7 @@ function OriginPanel({
 					<Label>Parent</Label>
 					<p className="text-muted-foreground text-xs">{slotHint("div")}</p>
 					<PlantCombobox
-						exclude={[child._id]}
+						exclude={[child._id, ...invalidParentIds]}
 						onSelect={onPick}
 						placeholder="Choose the parent"
 						plants={plants}
@@ -458,7 +487,7 @@ function OriginPanel({
 						<Label>Seed parent</Label>
 						<p className="text-muted-foreground text-xs">{slotHint("seed")}</p>
 						<PlantCombobox
-							exclude={[child._id, draft.pollen]}
+							exclude={[child._id, draft.pollen, ...invalidParentIds]}
 							onSelect={onPick}
 							placeholder="Choose the seed parent"
 							plants={plants}
@@ -478,7 +507,7 @@ function OriginPanel({
 							{slotHint("pollen")}
 						</p>
 						<PlantCombobox
-							exclude={[child._id, draft.seed]}
+							exclude={[child._id, draft.seed, ...invalidParentIds]}
 							onSelect={onPick}
 							placeholder="Choose the pollen parent"
 							plants={plants}
@@ -525,6 +554,14 @@ export default function HomePage() {
 		[focusId, graph],
 	);
 
+	// While wiring an Origin, the draft child's descendants cannot be its parent
+	// (would form a cycle), so they are hidden from the picker and dimmed on the
+	// canvas. The server still rejects cycles as a backstop.
+	const invalidParents = useMemo<Set<string>>(
+		() => (draft && graph ? descendantsOf(draft.childId, graph) : new Set()),
+		[draft, graph],
+	);
+
 	const startOrigin = useCallback((childId: Id<"plants">) => {
 		setFocusId(null);
 		setError(null);
@@ -566,12 +603,13 @@ export default function HomePage() {
 		(_event: React.MouseEvent, node: Node) => {
 			const id = node.id as Id<"plants">;
 			if (draft) {
+				if (id === draft.childId || invalidParents.has(id)) return;
 				pickParent(id);
 			} else {
 				setFocusId((cur) => (cur === id ? null : id));
 			}
 		},
-		[draft, pickParent],
+		[draft, invalidParents, pickParent],
 	);
 
 	async function saveOrigin() {
@@ -623,16 +661,21 @@ export default function HomePage() {
 				data: {
 					plant,
 					focused: focusId === plant._id,
-					dimmed: ancestry ? !ancestry.has(plant._id) : false,
+					dimmed: ancestry
+						? !ancestry.has(plant._id)
+						: invalidParents.has(plant._id),
 					pickRole,
-					pickable: Boolean(draft) && draft?.childId !== plant._id,
+					pickable:
+						Boolean(draft) &&
+						draft?.childId !== plant._id &&
+						!invalidParents.has(plant._id),
 					isOriginChild: draft?.childId === plant._id,
 					canSetOrigin: !draft && plant.originKind === undefined,
 					onSetOrigin: startOrigin,
 				},
 			};
 		});
-	}, [graph, positions, focusId, ancestry, draft, startOrigin]);
+	}, [graph, positions, focusId, ancestry, invalidParents, draft, startOrigin]);
 
 	const edges = useMemo<Edge[]>(() => {
 		if (!graph) return [];
@@ -707,6 +750,7 @@ export default function HomePage() {
 									child={draftChild}
 									draft={draft}
 									error={error}
+									invalidParentIds={[...invalidParents] as Id<"plants">[]}
 									onActiveSlot={(slot) =>
 										setDraft((d) => (d ? { ...d, activeSlot: slot } : d))
 									}
