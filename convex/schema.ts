@@ -14,7 +14,25 @@ export default defineSchema({
 		cultivar: v.optional(v.string()),
 		inCollection: v.boolean(),
 		originKind: v.optional(v.union(v.literal("cross"), v.literal("division"))),
+		// Free-form notes the owner keeps on this Plant.
+		notes: v.optional(v.string()),
+		// Denormalized pointer to the photo shown as this Plant's thumbnail on the
+		// canvas. Kept in sync by addPhoto/removePhoto so the Breeding graph query
+		// doesn't have to read the photos table for every node.
+		coverPhotoId: v.optional(v.id("_storage")),
 	}).index("by_owner", ["ownerId"]),
+
+	// Photos attached to a Plant. Kept in their own table (rather than an array
+	// on the Plant) so adding a photo doesn't rewrite the Plant doc and the list
+	// can grow without approaching the 1MB document limit. `storageId` points at
+	// the uploaded blob in Convex file storage.
+	plantPhotos: defineTable({
+		ownerId: v.string(),
+		plantId: v.id("plants"),
+		storageId: v.id("_storage"),
+	})
+		.index("by_plant", ["plantId"])
+		.index("by_owner", ["ownerId"]),
 
 	// One parent edge of the pedigree DAG. A Division produces one edge (no
 	// role); a Cross produces two edges tagged `seed` and `pollen`. Indexed both

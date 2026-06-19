@@ -118,7 +118,34 @@ export type BreedingGraphEdge = {
 export type BreedingGraph = {
 	plants: Doc<"plants">[];
 	edges: BreedingGraphEdge[];
+	// Signed thumbnail URL per Plant that has a cover photo, keyed by Plant id.
+	coverUrls: Record<Id<"plants">, string>;
 };
+
+/** A Plant photo paired with a signed URL the client can render. */
+export type PlantPhoto = {
+	_id: Id<"plantPhotos">;
+	url: string | null;
+};
+
+/** A parent in a Plant's Origin, with a display label and (for a Cross) role. */
+export type PlantParent = {
+	id: Id<"plants">;
+	label: string;
+	role?: "seed" | "pollen";
+};
+
+/** A Plant plus its attached photos and Origin parents, for the edit view. */
+export type PlantDetail = {
+	plant: Doc<"plants">;
+	photos: PlantPhoto[];
+	parents: PlantParent[];
+};
+
+/** Display label for a Plant: "Name — Cultivar", or just the name. */
+function labelOf(plant: Doc<"plants">): string {
+	return plant.cultivar ? `${plant.name} — ${plant.cultivar}` : plant.name;
+}
 
 /** All of the signed-in account's Plants, newest first. */
 export const listPlants = query({
@@ -156,7 +183,54 @@ export const getBreedingGraph = query({
 			parentId: edge.parentId,
 			role: edge.role,
 		}));
-		return { plants, edges };
+		const coverUrls: Record<Id<"plants">, string> = {};
+		await Promise.all(
+			plants.map(async (plant) => {
+				if (plant.coverPhotoId !== undefined) {
+					const url = await ctx.storage.getUrl(plant.coverPhotoId);
+					if (url !== null) {
+						coverUrls[plant._id] = url;
+					}
+				}
+			}),
+		);
+		return { plants, edges, coverUrls };
+	},
+});
+
+/** One Plant with its notes and photos (signed URLs), for the edit view. */
+export const getPlantDetail = query({
+	args: { plantId: v.id("plants") },
+	handler: async (ctx, args): Promise<PlantDetail> => {
+		const ownerId = await requireOwnerId(ctx);
+		const plant = await getOwnedPlant(ctx, args.plantId, ownerId);
+		const photoRows = await ctx.db
+			.query("plantPhotos")
+			.withIndex("by_plant", (q) => q.eq("plantId", args.plantId))
+			.take(100);
+		const photos: PlantPhoto[] = await Promise.all(
+			photoRows.map(async (row) => ({
+				_id: row._id,
+				url: await ctx.storage.getUrl(row.storageId),
+			})),
+		);
+		const edges = await parentEdgesOf(ctx, args.plantId);
+		const parents: PlantParent[] = [];
+		for (const edge of edges) {
+			const parent = await ctx.db.get(edge.parentId);
+			if (parent !== null) {
+				parents.push({
+					id: parent._id,
+					label: labelOf(parent),
+					role: edge.role,
+				});
+			}
+		}
+		// Seed before pollen, so a Cross reads in the conventional order.
+		parents.sort((a, b) =>
+			a.role === "seed" ? -1 : b.role === "seed" ? 1 : 0,
+		);
+		return { plant, photos, parents };
 	},
 });
 
@@ -213,5 +287,82 @@ export const recordCross = mutation({
 		await linkParent(ctx, ownerId, args.childId, args.seedParentId, "seed");
 		await linkParent(ctx, ownerId, args.childId, args.pollenParentId, "pollen");
 		await ctx.db.patch(args.childId, { originKind: "cross" });
+	},
+});
+
+/** Edit a Plant's editable details. Origin is set separately. */
+export const updatePlant = mutation({
+	args: {
+		plantId: v.id("plants"),
+		name: v.string(),
+		cultivar: v.optional(v.string()),
+		inCollection: v.boolean(),
+		notes: v.optional(v.string()),
+	},
+	handler: async (ctx, args) => {
+		const ownerId = await requireOwnerId(ctx);
+		await getOwnedPlant(ctx, args.plantId, ownerId);
+		if (args.name.trim() === "") {
+			throw new Error("A name is required");
+		}
+		await ctx.db.patch(args.plantId, {
+			name: args.name.trim(),
+			cultivar:
+				args.cultivar?.trim() === "" ? undefined : args.cultivar?.trim(),
+			inCollection: args.inCollection,
+			notes: args.notes?.trim() === "" ? undefined : args.notes?.trim(),
+		});
+	},
+});
+
+/** A short-lived URL the client POSTs a photo file to before attaching it. */
+export const generateUploadUrl = mutation({
+	args: {},
+	handler: async (ctx) => {
+		await requireOwnerId(ctx);
+		return ctx.storage.generateUploadUrl();
+	},
+});
+
+/** Attach an already-uploaded photo (by storage id) to a Plant. */
+export const addPhoto = mutation({
+	args: { plantId: v.id("plants"), storageId: v.id("_storage") },
+	handler: async (ctx, args) => {
+		const ownerId = await requireOwnerId(ctx);
+		const plant = await getOwnedPlant(ctx, args.plantId, ownerId);
+		await ctx.db.insert("plantPhotos", {
+			ownerId,
+			plantId: args.plantId,
+			storageId: args.storageId,
+		});
+		// The first photo becomes the Plant's canvas thumbnail.
+		if (plant.coverPhotoId === undefined) {
+			await ctx.db.patch(args.plantId, { coverPhotoId: args.storageId });
+		}
+	},
+});
+
+/** Detach a photo from a Plant and delete its underlying blob. */
+export const removePhoto = mutation({
+	args: { photoId: v.id("plantPhotos") },
+	handler: async (ctx, args) => {
+		const ownerId = await requireOwnerId(ctx);
+		const photo = await ctx.db.get(args.photoId);
+		if (photo === null || photo.ownerId !== ownerId) {
+			throw new Error("Photo not found");
+		}
+		await ctx.storage.delete(photo.storageId);
+		await ctx.db.delete(args.photoId);
+		// If the removed photo was the thumbnail, promote another one (or clear it).
+		const plant = await ctx.db.get(photo.plantId);
+		if (plant !== null && plant.coverPhotoId === photo.storageId) {
+			const [next] = await ctx.db
+				.query("plantPhotos")
+				.withIndex("by_plant", (q) => q.eq("plantId", photo.plantId))
+				.take(1);
+			await ctx.db.patch(photo.plantId, {
+				coverPhotoId: next ? next.storageId : undefined,
+			});
+		}
 	},
 });

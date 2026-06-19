@@ -17,6 +17,7 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import { ChevronDownIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { PlantEditDialog } from "~/components/PlantEditDialog";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import {
@@ -162,8 +163,9 @@ type PlantNodeData = {
 	pickRole: "div" | "seed" | "pollen" | null;
 	pickable: boolean;
 	isOriginChild: boolean;
-	canSetOrigin: boolean;
-	onSetOrigin: (id: Id<"plants">) => void;
+	canEdit: boolean;
+	onEdit: (id: Id<"plants">) => void;
+	photoUrl?: string;
 };
 
 type PlantFlowNode = Node<PlantNodeData, "plant">;
@@ -182,8 +184,9 @@ function PlantNode({ data }: NodeProps<PlantFlowNode>) {
 		pickRole,
 		pickable,
 		isOriginChild,
-		canSetOrigin,
-		onSetOrigin,
+		canEdit,
+		onEdit,
+		photoUrl,
 	} = data;
 	return (
 		<div className={cn("transition-opacity", dimmed && "opacity-30")}>
@@ -202,10 +205,22 @@ function PlantNode({ data }: NodeProps<PlantFlowNode>) {
 				)}
 			>
 				<CardHeader className="px-4">
-					<CardTitle className="text-base">{plant.name}</CardTitle>
-					{plant.cultivar ? (
-						<CardDescription>{plant.cultivar}</CardDescription>
-					) : null}
+					<div className="flex items-start gap-2">
+						{photoUrl ? (
+							// biome-ignore lint/performance/noImgElement: signed Convex storage URL
+							<img
+								alt=""
+								className="size-10 shrink-0 rounded-md object-cover"
+								src={photoUrl}
+							/>
+						) : null}
+						<div className="min-w-0 flex-1">
+							<CardTitle className="text-base">{plant.name}</CardTitle>
+							{plant.cultivar ? (
+								<CardDescription>{plant.cultivar}</CardDescription>
+							) : null}
+						</div>
+					</div>
 					<div className="mt-1 flex flex-wrap gap-1">
 						{plant.originKind ? (
 							<Badge variant="default">{originLabel[plant.originKind]}</Badge>
@@ -222,17 +237,17 @@ function PlantNode({ data }: NodeProps<PlantFlowNode>) {
 							<Badge variant="secondary">Setting origin…</Badge>
 						) : null}
 					</div>
-					{canSetOrigin ? (
+					{canEdit ? (
 						<Button
 							className="mt-1 w-full"
 							onClick={(e) => {
 								e.stopPropagation();
-								onSetOrigin(plant._id);
+								onEdit(plant._id);
 							}}
 							size="sm"
 							variant="outline"
 						>
-							Set origin
+							Edit
 						</Button>
 					) : null}
 				</CardHeader>
@@ -541,6 +556,7 @@ export default function HomePage() {
 	const recordCross = useMutation(api.plants.recordCross);
 
 	const [focusId, setFocusId] = useState<Id<"plants"> | null>(null);
+	const [editId, setEditId] = useState<Id<"plants"> | null>(null);
 	const [draft, setDraft] = useState<OriginDraft | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
@@ -670,12 +686,13 @@ export default function HomePage() {
 						draft?.childId !== plant._id &&
 						!invalidParents.has(plant._id),
 					isOriginChild: draft?.childId === plant._id,
-					canSetOrigin: !draft && plant.originKind === undefined,
-					onSetOrigin: startOrigin,
+					canEdit: !draft,
+					onEdit: setEditId,
+					photoUrl: graph.coverUrls[plant._id],
 				},
 			};
 		});
-	}, [graph, positions, focusId, ancestry, invalidParents, draft, startOrigin]);
+	}, [graph, positions, focusId, ancestry, invalidParents, draft]);
 
 	const edges = useMemo<Edge[]>(() => {
 		if (!graph) return [];
@@ -781,6 +798,17 @@ export default function HomePage() {
 					</ReactFlow>
 				)}
 			</div>
+
+			<PlantEditDialog
+				onOpenChange={(open) => {
+					if (!open) setEditId(null);
+				}}
+				onSetOrigin={(id) => {
+					setEditId(null);
+					startOrigin(id);
+				}}
+				plantId={editId}
+			/>
 		</div>
 	);
 }
