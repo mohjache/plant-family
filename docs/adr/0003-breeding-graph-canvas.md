@@ -1,5 +1,11 @@
 # The home screen is one whole-collection breeding-graph canvas
 
+> **Superseded by [ADR-0004](0004-inventory-first-information-architecture.md).**
+> The home screen is now an Inventory photo grid, and family history is a
+> per-plant rooted Pedigree; the whole-collection canvas and its React
+> Flow/Dagre dependencies have been removed.
+
+
 The home screen renders the entire Breeding graph — every Plant and every Origin
 edge for the account at once — on a single pannable/zoomable canvas, replacing
 the previous two-pane layout of a Collection list beside a rooted Pedigree tree.

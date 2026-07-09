@@ -1,26 +1,12 @@
-
-import { AppSidebar } from "~/components/AppSidebar";
-import {
-	SidebarInset,
-	SidebarProvider,
-	SidebarTrigger,
-} from "~/components/ui/sidebar";
-import { TooltipProvider } from "~/components/ui/tooltip";
+import { BottomNav } from "~/components/BottomNav";
 
 export default function AppLayout({
 	children,
 }: Readonly<{ children: React.ReactNode }>) {
 	return (
-		<SidebarProvider>
-			<TooltipProvider>
-			<AppSidebar />
-			<SidebarInset>
-				<header className="flex h-14 items-center gap-2 border-b px-4">
-					<SidebarTrigger />
-				</header>
-				<div className="flex-1 p-6">{children}</div>
-			</SidebarInset>
-			</TooltipProvider>
-		</SidebarProvider>
+		<div className="mx-auto flex min-h-svh w-full max-w-3xl flex-col">
+			<main className="flex-1 px-4 pt-4 pb-24">{children}</main>
+			<BottomNav />
+		</div>
 	);
 }

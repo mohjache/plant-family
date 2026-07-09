@@ -1,40 +1,13 @@
 "use client";
 
-import "@xyflow/react/dist/style.css";
-
-import dagre from "@dagrejs/dagre";
-import {
-	Background,
-	Controls,
-	type Edge,
-	Handle,
-	type Node,
-	type NodeProps,
-	Panel,
-	Position,
-	ReactFlow,
-} from "@xyflow/react";
-import { useMutation, useQuery } from "convex/react";
-import { ChevronDownIcon } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
-import { PlantEditDialog } from "~/components/PlantEditDialog";
+import { api } from "@convex/_generated/api";
+import type { InventoryItem } from "@convex/plants";
+import { useQuery } from "convex/react";
+import { ImageIcon, Search } from "lucide-react";
+import Link from "next/link";
+import { useMemo, useState } from "react";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import {
-	Card,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "~/components/ui/card";
-import { Checkbox } from "~/components/ui/checkbox";
-import {
-	Command,
-	CommandEmpty,
-	CommandGroup,
-	CommandInput,
-	CommandItem,
-	CommandList,
-} from "~/components/ui/command";
 import {
 	Empty,
 	EmptyDescription,
@@ -42,773 +15,109 @@ import {
 	EmptyTitle,
 } from "~/components/ui/empty";
 import { Input } from "~/components/ui/input";
-import { Label } from "~/components/ui/label";
-import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from "~/components/ui/popover";
-import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
-import { cn } from "~/lib/utils";
-import { api } from "../../../../convex/_generated/api";
-import type { Doc, Id } from "../../../../convex/_generated/dataModel";
-import type { BreedingGraph } from "../../../../convex/plants";
 
-type Plant = Doc<"plants">;
-
-const originLabel: Record<"cross" | "division", string> = {
-	cross: "Cross",
-	division: "Division",
-};
-
-const roleLabel: Record<"seed" | "pollen", string> = {
-	seed: "Seed",
-	pollen: "Pollen",
-};
-
-function plantLabel(p: Plant): string {
-	return p.cultivar ? `${p.name} — ${p.cultivar}` : p.name;
+function matches(item: InventoryItem, q: string): boolean {
+	if (q === "") return true;
+	return item.plant.name.toLowerCase().includes(q.toLowerCase());
 }
 
-// ---------------------------------------------------------------------------
-// Layout — Dagre lays the whole Breeding graph out top-down (oldest at top).
-// Positions are ephemeral: recomputed from the query each render, never saved.
-// ---------------------------------------------------------------------------
+export default function InventoryPage() {
+	const inventory = useQuery(api.plants.listInventory);
+	const [search, setSearch] = useState("");
 
-const NODE_W = 208;
-const NODE_H = 150;
-
-function computeLayout(
-	graph: BreedingGraph,
-): Map<string, { x: number; y: number }> {
-	const g = new dagre.graphlib.Graph();
-	g.setGraph({ rankdir: "TB", nodesep: 48, ranksep: 80 });
-	g.setDefaultEdgeLabel(() => ({}));
-	for (const plant of graph.plants) {
-		g.setNode(plant._id, { width: NODE_W, height: NODE_H });
-	}
-	for (const edge of graph.edges) {
-		g.setEdge(edge.parentId, edge.childId);
-	}
-	dagre.layout(g);
-	const positions = new Map<string, { x: number; y: number }>();
-	for (const plant of graph.plants) {
-		const node = g.node(plant._id);
-		positions.set(plant._id, {
-			x: node.x - NODE_W / 2,
-			y: node.y - NODE_H / 2,
-		});
-	}
-	return positions;
-}
-
-/** Every Plant that is `focusId` or an ancestor of it, walking edges upward. */
-function ancestryOf(focusId: string, graph: BreedingGraph): Set<string> {
-	const parentsByChild = new Map<string, string[]>();
-	for (const edge of graph.edges) {
-		const arr = parentsByChild.get(edge.childId) ?? [];
-		arr.push(edge.parentId);
-		parentsByChild.set(edge.childId, arr);
-	}
-	const result = new Set<string>([focusId]);
-	const stack = [focusId];
-	while (stack.length > 0) {
-		const current = stack.pop();
-		if (current === undefined) continue;
-		for (const parentId of parentsByChild.get(current) ?? []) {
-			if (!result.has(parentId)) {
-				result.add(parentId);
-				stack.push(parentId);
-			}
-		}
-	}
-	return result;
-}
-
-/**
- * Every Plant that descends from `rootId` (strict — excludes `rootId` itself),
- * walking edges downward. These are exactly the plants that cannot be a parent
- * of `rootId` without forming a cycle.
- */
-function descendantsOf(rootId: string, graph: BreedingGraph): Set<string> {
-	const childrenByParent = new Map<string, string[]>();
-	for (const edge of graph.edges) {
-		const arr = childrenByParent.get(edge.parentId) ?? [];
-		arr.push(edge.childId);
-		childrenByParent.set(edge.parentId, arr);
-	}
-	const result = new Set<string>();
-	const stack = [rootId];
-	while (stack.length > 0) {
-		const current = stack.pop();
-		if (current === undefined) continue;
-		for (const childId of childrenByParent.get(current) ?? []) {
-			if (!result.has(childId)) {
-				result.add(childId);
-				stack.push(childId);
-			}
-		}
-	}
-	return result;
-}
-
-// ---------------------------------------------------------------------------
-// Custom node — the existing PlantCard, adapted as a React Flow node.
-// ---------------------------------------------------------------------------
-
-type PlantNodeData = {
-	plant: Plant;
-	focused: boolean;
-	dimmed: boolean;
-	pickRole: "div" | "seed" | "pollen" | null;
-	pickable: boolean;
-	isOriginChild: boolean;
-	canEdit: boolean;
-	onEdit: (id: Id<"plants">) => void;
-	photoUrl?: string;
-};
-
-type PlantFlowNode = Node<PlantNodeData, "plant">;
-
-const pickRoleLabel: Record<"div" | "seed" | "pollen", string> = {
-	div: "Parent",
-	seed: "Seed parent",
-	pollen: "Pollen parent",
-};
-
-function PlantNode({ data }: NodeProps<PlantFlowNode>) {
-	const {
-		plant,
-		focused,
-		dimmed,
-		pickRole,
-		pickable,
-		isOriginChild,
-		canEdit,
-		onEdit,
-		photoUrl,
-	} = data;
-	return (
-		<div className={cn("transition-opacity", dimmed && "opacity-30")}>
-			<Handle
-				className="!border-0 !bg-transparent"
-				position={Position.Top}
-				type="target"
-			/>
-			<Card
-				className={cn(
-					"w-52 gap-2 py-3 transition-shadow",
-					focused && "ring-2 ring-primary",
-					isOriginChild && "ring-2 ring-primary ring-dashed",
-					pickRole && "ring-2 ring-emerald-500",
-					pickable && "cursor-pointer hover:ring-2 hover:ring-emerald-400",
-				)}
-			>
-				<CardHeader className="px-4">
-					<div className="flex items-start gap-2">
-						{photoUrl ? (
-							// biome-ignore lint/performance/noImgElement: signed Convex storage URL
-							<img
-								alt=""
-								className="size-10 shrink-0 rounded-md object-cover"
-								src={photoUrl}
-							/>
-						) : null}
-						<div className="min-w-0 flex-1">
-							<CardTitle className="text-base">{plant.name}</CardTitle>
-							{plant.cultivar ? (
-								<CardDescription>{plant.cultivar}</CardDescription>
-							) : null}
-						</div>
-					</div>
-					<div className="mt-1 flex flex-wrap gap-1">
-						{plant.originKind ? (
-							<Badge variant="default">{originLabel[plant.originKind]}</Badge>
-						) : null}
-						{!plant.inCollection ? (
-							<Badge variant="outline">Reference</Badge>
-						) : null}
-						{pickRole ? (
-							<Badge className="bg-emerald-500" variant="default">
-								{pickRoleLabel[pickRole]}
-							</Badge>
-						) : null}
-						{isOriginChild ? (
-							<Badge variant="secondary">Setting origin…</Badge>
-						) : null}
-					</div>
-					{canEdit ? (
-						<Button
-							className="mt-1 w-full"
-							onClick={(e) => {
-								e.stopPropagation();
-								onEdit(plant._id);
-							}}
-							size="sm"
-							variant="outline"
-						>
-							Edit
-						</Button>
-					) : null}
-				</CardHeader>
-			</Card>
-			<Handle
-				className="!border-0 !bg-transparent"
-				position={Position.Bottom}
-				type="source"
-			/>
-		</div>
-	);
-}
-
-const nodeTypes = { plant: PlantNode };
-
-// ---------------------------------------------------------------------------
-// Searchable plant picker — the dropdown fallback for guided parent-picking.
-// ---------------------------------------------------------------------------
-
-function PlantCombobox({
-	plants,
-	value,
-	onSelect,
-	exclude,
-	placeholder,
-}: {
-	plants: Plant[];
-	value: Id<"plants"> | null;
-	onSelect: (id: Id<"plants">) => void;
-	exclude: (Id<"plants"> | null)[];
-	placeholder: string;
-}) {
-	const [open, setOpen] = useState(false);
-	const selected = plants.find((p) => p._id === value) ?? null;
-	const options = plants.filter((p) => !exclude.includes(p._id));
-	return (
-		<Popover onOpenChange={setOpen} open={open}>
-			<PopoverTrigger asChild>
-				<Button
-					className="w-full justify-between font-normal"
-					variant="outline"
-				>
-					<span className="truncate">
-						{selected ? plantLabel(selected) : placeholder}
-					</span>
-					<ChevronDownIcon className="size-4 shrink-0 opacity-50" />
-				</Button>
-			</PopoverTrigger>
-			<PopoverContent align="start" className="w-64 p-0">
-				<Command>
-					<CommandInput placeholder="Search plants…" />
-					<CommandList>
-						<CommandEmpty>No plants found.</CommandEmpty>
-						<CommandGroup>
-							{options.map((p) => (
-								<CommandItem
-									key={p._id}
-									onSelect={() => {
-										onSelect(p._id);
-										setOpen(false);
-									}}
-									value={`${plantLabel(p)} ${p._id}`}
-								>
-									{plantLabel(p)}
-								</CommandItem>
-							))}
-						</CommandGroup>
-					</CommandList>
-				</Command>
-			</PopoverContent>
-		</Popover>
-	);
-}
-
-// ---------------------------------------------------------------------------
-// Add-plant control — inline form that drops a floating, unconnected node.
-// ---------------------------------------------------------------------------
-
-function AddPlantControl() {
-	const createPlant = useMutation(api.plants.createPlant);
-	const [open, setOpen] = useState(false);
-	const [name, setName] = useState("");
-	const [cultivar, setCultivar] = useState("");
-	const [inCollection, setInCollection] = useState(true);
-	const [error, setError] = useState<string | null>(null);
-
-	function reset() {
-		setName("");
-		setCultivar("");
-		setInCollection(true);
-		setError(null);
-	}
-
-	async function submit() {
-		if (name.trim() === "") {
-			setError("A name is required");
-			return;
-		}
-		const c = cultivar.trim();
-		try {
-			await createPlant({
-				name: name.trim(),
-				cultivar: c === "" ? undefined : c,
-				inCollection,
-			});
-			reset();
-			setOpen(false);
-		} catch (e) {
-			setError(e instanceof Error ? e.message : "Something went wrong");
-		}
-	}
-
-	return (
-		<Popover
-			onOpenChange={(o) => {
-				setOpen(o);
-				if (!o) reset();
-			}}
-			open={open}
-		>
-			<PopoverTrigger asChild>
-				<Button size="sm">Add plant</Button>
-			</PopoverTrigger>
-			<PopoverContent align="end" className="w-72 space-y-4">
-				<div className="space-y-2">
-					<Label htmlFor="add-plant-name">Name</Label>
-					<Input
-						id="add-plant-name"
-						onChange={(e) => setName(e.target.value)}
-						placeholder="Alocasia 'Polly'"
-						value={name}
-					/>
-				</div>
-				<div className="space-y-2">
-					<Label htmlFor="add-plant-cultivar">Cultivar (optional)</Label>
-					<Input
-						id="add-plant-cultivar"
-						onChange={(e) => setCultivar(e.target.value)}
-						placeholder="'Polly'"
-						value={cultivar}
-					/>
-				</div>
-				<div className="flex items-center gap-2">
-					<Checkbox
-						checked={inCollection}
-						id="add-plant-in-collection"
-						onCheckedChange={(v) => setInCollection(v === true)}
-					/>
-					<Label htmlFor="add-plant-in-collection">In my collection</Label>
-				</div>
-				{error ? <p className="text-destructive text-sm">{error}</p> : null}
-				<Button className="w-full" onClick={submit}>
-					Add plant
-				</Button>
-			</PopoverContent>
-		</Popover>
-	);
-}
-
-// ---------------------------------------------------------------------------
-// Guided origin control — the per-node panel for wiring a Plant's Origin.
-// Hybrid parent-picking: click a plant on the canvas, or use the dropdown.
-// ---------------------------------------------------------------------------
-
-type OriginDraft = {
-	childId: Id<"plants">;
-	kind: "division" | "cross";
-	divParent: Id<"plants"> | null;
-	seed: Id<"plants"> | null;
-	pollen: Id<"plants"> | null;
-	activeSlot: "div" | "seed" | "pollen";
-};
-
-function OriginPanel({
-	draft,
-	child,
-	plants,
-	invalidParentIds,
-	error,
-	onKind,
-	onActiveSlot,
-	onPick,
-	onSave,
-	onCancel,
-}: {
-	draft: OriginDraft;
-	child: Plant;
-	plants: Plant[];
-	invalidParentIds: Id<"plants">[];
-	error: string | null;
-	onKind: (kind: "division" | "cross") => void;
-	onActiveSlot: (slot: "div" | "seed" | "pollen") => void;
-	onPick: (id: Id<"plants">) => void;
-	onSave: () => void;
-	onCancel: () => void;
-}) {
-	const slotHint = (slot: "div" | "seed" | "pollen") =>
-		draft.activeSlot === slot
-			? "Click a plant on the canvas, or search below"
-			: "Click here, then pick on the canvas";
-
-	return (
-		<Card className="w-80 gap-3 p-4 shadow-lg">
-			<CardHeader className="p-0">
-				<CardTitle className="text-base">
-					Origin of {plantLabel(child)}
-				</CardTitle>
-				<CardDescription>
-					Point this plant at the parent(s) it descends from.
-				</CardDescription>
-			</CardHeader>
-
-			<Tabs
-				onValueChange={(v) => onKind(v as "division" | "cross")}
-				value={draft.kind}
-			>
-				<TabsList>
-					<TabsTrigger value="division">Division</TabsTrigger>
-					<TabsTrigger value="cross">Cross</TabsTrigger>
-				</TabsList>
-			</Tabs>
-
-			{draft.kind === "division" ? (
-				<button
-					className={cn(
-						"space-y-2 rounded-md border p-2 text-left",
-						draft.activeSlot === "div" && "ring-2 ring-emerald-400",
-					)}
-					onClick={() => onActiveSlot("div")}
-					type="button"
-				>
-					<Label>Parent</Label>
-					<p className="text-muted-foreground text-xs">{slotHint("div")}</p>
-					<PlantCombobox
-						exclude={[child._id, ...invalidParentIds]}
-						onSelect={onPick}
-						placeholder="Choose the parent"
-						plants={plants}
-						value={draft.divParent}
-					/>
-				</button>
-			) : (
-				<>
-					<button
-						className={cn(
-							"space-y-2 rounded-md border p-2 text-left",
-							draft.activeSlot === "seed" && "ring-2 ring-emerald-400",
-						)}
-						onClick={() => onActiveSlot("seed")}
-						type="button"
-					>
-						<Label>Seed parent</Label>
-						<p className="text-muted-foreground text-xs">{slotHint("seed")}</p>
-						<PlantCombobox
-							exclude={[child._id, draft.pollen, ...invalidParentIds]}
-							onSelect={onPick}
-							placeholder="Choose the seed parent"
-							plants={plants}
-							value={draft.seed}
-						/>
-					</button>
-					<button
-						className={cn(
-							"space-y-2 rounded-md border p-2 text-left",
-							draft.activeSlot === "pollen" && "ring-2 ring-emerald-400",
-						)}
-						onClick={() => onActiveSlot("pollen")}
-						type="button"
-					>
-						<Label>Pollen parent</Label>
-						<p className="text-muted-foreground text-xs">
-							{slotHint("pollen")}
-						</p>
-						<PlantCombobox
-							exclude={[child._id, draft.seed, ...invalidParentIds]}
-							onSelect={onPick}
-							placeholder="Choose the pollen parent"
-							plants={plants}
-							value={draft.pollen}
-						/>
-					</button>
-				</>
-			)}
-
-			{error ? <p className="text-destructive text-sm">{error}</p> : null}
-
-			<div className="flex justify-end gap-2">
-				<Button onClick={onCancel} size="sm" variant="ghost">
-					Cancel
-				</Button>
-				<Button onClick={onSave} size="sm">
-					Save origin
-				</Button>
-			</div>
-		</Card>
-	);
-}
-
-// ---------------------------------------------------------------------------
-// Page — the whole-collection Breeding graph canvas.
-// ---------------------------------------------------------------------------
-
-export default function HomePage() {
-	const graph = useQuery(api.plants.getBreedingGraph);
-	const recordDivision = useMutation(api.plants.recordDivision);
-	const recordCross = useMutation(api.plants.recordCross);
-
-	const [focusId, setFocusId] = useState<Id<"plants"> | null>(null);
-	const [editId, setEditId] = useState<Id<"plants"> | null>(null);
-	const [draft, setDraft] = useState<OriginDraft | null>(null);
-	const [error, setError] = useState<string | null>(null);
-
-	const positions = useMemo(
-		() => (graph ? computeLayout(graph) : new Map()),
-		[graph],
+	const filtered = useMemo(
+		() => (inventory ? inventory.filter((item) => matches(item, search)) : []),
+		[inventory, search],
 	);
 
-	const ancestry = useMemo(
-		() => (focusId && graph ? ancestryOf(focusId, graph) : null),
-		[focusId, graph],
-	);
-
-	// While wiring an Origin, the draft child's descendants cannot be its parent
-	// (would form a cycle), so they are hidden from the picker and dimmed on the
-	// canvas. The server still rejects cycles as a backstop.
-	const invalidParents = useMemo<Set<string>>(
-		() => (draft && graph ? descendantsOf(draft.childId, graph) : new Set()),
-		[draft, graph],
-	);
-
-	const startOrigin = useCallback((childId: Id<"plants">) => {
-		setFocusId(null);
-		setError(null);
-		setDraft({
-			childId,
-			kind: "division",
-			divParent: null,
-			seed: null,
-			pollen: null,
-			activeSlot: "div",
-		});
-	}, []);
-
-	const pickParent = useCallback((id: Id<"plants">) => {
-		setError(null);
-		setDraft((d) => {
-			if (!d || id === d.childId) return d;
-			if (d.kind === "division") {
-				return { ...d, divParent: id };
-			}
-			if (d.activeSlot === "seed") {
-				return {
-					...d,
-					seed: id,
-					pollen: d.pollen === id ? null : d.pollen,
-					activeSlot: "pollen",
-				};
-			}
-			return {
-				...d,
-				pollen: id,
-				seed: d.seed === id ? null : d.seed,
-				activeSlot: "seed",
-			};
-		});
-	}, []);
-
-	const onNodeClick = useCallback(
-		(_event: React.MouseEvent, node: Node) => {
-			const id = node.id as Id<"plants">;
-			if (draft) {
-				if (id === draft.childId || invalidParents.has(id)) return;
-				pickParent(id);
-			} else {
-				setFocusId((cur) => (cur === id ? null : id));
-			}
-		},
-		[draft, invalidParents, pickParent],
-	);
-
-	async function saveOrigin() {
-		if (!draft) return;
-		try {
-			if (draft.kind === "division") {
-				if (!draft.divParent) {
-					setError("Choose a parent");
-					return;
-				}
-				await recordDivision({
-					childId: draft.childId,
-					parentId: draft.divParent,
-				});
-			} else {
-				if (!draft.seed || !draft.pollen) {
-					setError("Choose both parents");
-					return;
-				}
-				await recordCross({
-					childId: draft.childId,
-					seedParentId: draft.seed,
-					pollenParentId: draft.pollen,
-				});
-			}
-			setDraft(null);
-			setError(null);
-		} catch (e) {
-			setError(e instanceof Error ? e.message : "Something went wrong");
-		}
-	}
-
-	const nodes = useMemo<PlantFlowNode[]>(() => {
-		if (!graph) return [];
-		return graph.plants.map((plant) => {
-			const pickRole: "div" | "seed" | "pollen" | null = draft
-				? draft.divParent === plant._id
-					? "div"
-					: draft.seed === plant._id
-						? "seed"
-						: draft.pollen === plant._id
-							? "pollen"
-							: null
-				: null;
-			return {
-				id: plant._id,
-				type: "plant",
-				position: positions.get(plant._id) ?? { x: 0, y: 0 },
-				data: {
-					plant,
-					focused: focusId === plant._id,
-					dimmed: ancestry
-						? !ancestry.has(plant._id)
-						: invalidParents.has(plant._id),
-					pickRole,
-					pickable:
-						Boolean(draft) &&
-						draft?.childId !== plant._id &&
-						!invalidParents.has(plant._id),
-					isOriginChild: draft?.childId === plant._id,
-					canEdit: !draft,
-					onEdit: setEditId,
-					photoUrl: graph.coverUrls[plant._id],
-				},
-			};
-		});
-	}, [graph, positions, focusId, ancestry, invalidParents, draft]);
-
-	const edges = useMemo<Edge[]>(() => {
-		if (!graph) return [];
-		return graph.edges.map((edge) => {
-			const onPath = ancestry
-				? ancestry.has(edge.childId) && ancestry.has(edge.parentId)
-				: false;
-			return {
-				id: `${edge.parentId}-${edge.childId}`,
-				source: edge.parentId,
-				target: edge.childId,
-				label: edge.role ? roleLabel[edge.role] : undefined,
-				animated: onPath,
-				style: ancestry ? { opacity: onPath ? 1 : 0.15 } : undefined,
-			};
-		});
-	}, [graph, ancestry]);
-
-	if (graph === undefined) {
+	if (inventory === undefined) {
 		return <p className="text-muted-foreground text-sm">Loading…</p>;
 	}
 
-	const draftChild = draft
-		? (graph.plants.find((p) => p._id === draft.childId) ?? null)
-		: null;
-
 	return (
-		<div className="flex h-[calc(100vh-9rem)] flex-col gap-4">
-			<div className="flex items-start justify-between gap-4">
-				<div>
-					<h1 className="font-bold text-2xl tracking-tight">Breeding graph</h1>
-					<p className="text-muted-foreground text-sm">
-						Your whole collection at once. Click a plant to focus its ancestry;
-						use “Set origin” to wire up where each one came from.
-					</p>
+		<div className="space-y-4">
+			<div className="flex items-center justify-between gap-4">
+				<h1 className="font-bold text-2xl tracking-tight">Your plants</h1>
+				<Button asChild size="sm">
+					<Link href="/plants/new">Add plant</Link>
+				</Button>
+			</div>
+
+			{inventory.length === 0 ? (
+				<div className="flex min-h-[50vh] items-center justify-center">
+					<Empty>
+						<EmptyHeader>
+							<EmptyTitle>No plants yet</EmptyTitle>
+							<EmptyDescription>
+								Add your first plant to start your inventory.
+							</EmptyDescription>
+						</EmptyHeader>
+						<Button asChild>
+							<Link href="/plants/new">Add plant</Link>
+						</Button>
+					</Empty>
 				</div>
-			</div>
-
-			<div className="relative flex-1 overflow-hidden rounded-lg border">
-				{graph.plants.length === 0 ? (
-					<div className="flex h-full items-center justify-center">
-						<Empty>
-							<EmptyHeader>
-								<EmptyTitle>No plants yet</EmptyTitle>
-								<EmptyDescription>
-									Add your first plant to start the Breeding graph.
-								</EmptyDescription>
-							</EmptyHeader>
-							<AddPlantControl />
-						</Empty>
+			) : (
+				<>
+					<div className="relative">
+						<Search className="-translate-y-1/2 absolute top-1/2 left-3 size-4 text-muted-foreground" />
+						<Input
+							className="pl-9"
+							onChange={(e) => setSearch(e.target.value)}
+							placeholder="Search by name…"
+							value={search}
+						/>
 					</div>
-				) : (
-					<ReactFlow
-						edges={edges}
-						fitView
-						nodes={nodes}
-						nodesConnectable={false}
-						nodesDraggable={false}
-						nodeTypes={nodeTypes}
-						onNodeClick={onNodeClick}
-						onPaneClick={() => setFocusId(null)}
-						proOptions={{ hideAttribution: true }}
-					>
-						<Background />
-						<Controls showInteractive={false} />
-						<Panel position="top-right">
-							<AddPlantControl />
-						</Panel>
-						{draft && draftChild ? (
-							<Panel position="top-left">
-								<OriginPanel
-									child={draftChild}
-									draft={draft}
-									error={error}
-									invalidParentIds={[...invalidParents] as Id<"plants">[]}
-									onActiveSlot={(slot) =>
-										setDraft((d) => (d ? { ...d, activeSlot: slot } : d))
-									}
-									onCancel={() => {
-										setDraft(null);
-										setError(null);
-									}}
-									onKind={(kind) =>
-										setDraft((d) =>
-											d
-												? {
-														...d,
-														kind,
-														divParent: null,
-														seed: null,
-														pollen: null,
-														activeSlot: kind === "division" ? "div" : "seed",
-													}
-												: d,
-										)
-									}
-									onPick={pickParent}
-									onSave={saveOrigin}
-									plants={graph.plants}
-								/>
-							</Panel>
-						) : null}
-					</ReactFlow>
-				)}
-			</div>
 
-			<PlantEditDialog
-				onOpenChange={(open) => {
-					if (!open) setEditId(null);
-				}}
-				onSetOrigin={(id) => {
-					setEditId(null);
-					startOrigin(id);
-				}}
-				plantId={editId}
-			/>
+					{filtered.length === 0 ? (
+						<p className="py-10 text-center text-muted-foreground text-sm">
+							No plants match “{search}”.
+						</p>
+					) : (
+						<div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+							{filtered.map((item) => (
+								<InventoryCard item={item} key={item.plant._id} />
+							))}
+						</div>
+					)}
+				</>
+			)}
 		</div>
+	);
+}
+
+function InventoryCard({ item }: { item: InventoryItem }) {
+	const { plant, coverUrl, photoCount } = item;
+	return (
+		<Link
+			className="group overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md"
+			href={`/plants/${plant._id}`}
+		>
+			<div className="relative aspect-[4/5] bg-muted">
+				{coverUrl ? (
+					// biome-ignore lint/performance/noImgElement: signed Convex storage URL
+					<img
+						alt={plant.name}
+						className="size-full object-cover transition-transform group-hover:scale-105"
+						src={coverUrl}
+					/>
+				) : (
+					<div className="flex size-full items-center justify-center text-muted-foreground">
+						<ImageIcon className="size-8" />
+					</div>
+				)}
+				{photoCount > 0 ? (
+					<Badge
+						className="absolute right-1.5 bottom-1.5 bg-black/60 text-white"
+						variant="secondary"
+					>
+						{photoCount}
+					</Badge>
+				) : null}
+			</div>
+			<div className="p-2.5">
+				<p className="line-clamp-1 font-medium text-sm">{plant.name}</p>
+			</div>
+		</Link>
 	);
 }
