@@ -74,7 +74,6 @@ export function PhotoCropInput({
 	const hiddenInput = (
 		<input
 			accept="image/*"
-			capture="environment"
 			className="hidden"
 			onChange={(e) => pick(e.target.files)}
 			ref={fileInput}
