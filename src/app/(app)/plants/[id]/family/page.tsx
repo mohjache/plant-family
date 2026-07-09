@@ -8,6 +8,10 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { OriginEditor } from "~/components/OriginEditor";
 import { Pedigree } from "~/components/Pedigree";
+import {
+	OriginEditorSkeleton,
+	PlantFamilySkeleton,
+} from "~/components/PlantSkeletons";
 import { Button } from "~/components/ui/button";
 
 /**
@@ -23,7 +27,7 @@ export default function PlantFamilyPage() {
 	const plants = useQuery(api.plants.listPlants);
 
 	if (detail === undefined) {
-		return <p className="text-muted-foreground text-sm">Loading…</p>;
+		return <PlantFamilySkeleton />;
 	}
 	if (detail === null) {
 		return (
@@ -48,7 +52,7 @@ export default function PlantFamilyPage() {
 			</div>
 
 			{plants === undefined ? (
-				<p className="text-muted-foreground text-sm">Loading…</p>
+				<OriginEditorSkeleton />
 			) : (
 				<OriginEditor plant={detail.plant} plantId={plantId} plants={plants} />
 			)}

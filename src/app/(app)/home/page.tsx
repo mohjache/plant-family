@@ -6,6 +6,7 @@ import { useQuery } from "convex/react";
 import { ImageIcon, Search } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { InventorySkeleton } from "~/components/PlantSkeletons";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import {
@@ -31,7 +32,7 @@ export default function InventoryPage() {
 	);
 
 	if (inventory === undefined) {
-		return <p className="text-muted-foreground text-sm">Loading…</p>;
+		return <InventorySkeleton />;
 	}
 
 	return (

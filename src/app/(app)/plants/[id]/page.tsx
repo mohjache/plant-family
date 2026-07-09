@@ -8,6 +8,7 @@ import { ArrowLeft, Camera, ImageIcon, Network, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { PlantDetailSkeleton } from "~/components/PlantSkeletons";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -41,7 +42,10 @@ export default function PlantDetailPage() {
 		}
 	}, [detail, router]);
 
-	if (detail === undefined || detail === null) {
+	if (detail === undefined) {
+		return <PlantDetailSkeleton />;
+	}
+	if (detail === null) {
 		return <p className="text-muted-foreground text-sm">Loading…</p>;
 	}
 

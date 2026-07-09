@@ -9,6 +9,7 @@ import { ArrowLeft, ImageIcon, Pencil, Plus, Star, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
+import { PlantTimelineSkeleton } from "~/components/PlantSkeletons";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -36,7 +37,7 @@ export default function PlantPhotosPage() {
 	const detail = useQuery(api.plants.getPlantDetail, { plantId });
 
 	if (detail === undefined) {
-		return <p className="text-muted-foreground text-sm">Loading…</p>;
+		return <PlantTimelineSkeleton />;
 	}
 	if (detail === null) {
 		return (
